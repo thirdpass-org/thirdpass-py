@@ -8,8 +8,6 @@ mod pipfile;
 pub struct PyExtension {
     name_: String,
     registry_host_names_: Vec<String>,
-    root_url_: url::Url,
-    package_url_template_: String,
     registry_human_url_template_: String,
 }
 
@@ -18,8 +16,6 @@ impl vouch_lib::extension::FromLib for PyExtension {
         Self {
             name_: "py".to_string(),
             registry_host_names_: vec!["pypi.org".to_owned()],
-            root_url_: url::Url::parse("https://pypi.org/pypi").unwrap(),
-            package_url_template_: "https://pypi.org/pypi/{{package_name}}/".to_string(),
             registry_human_url_template_:
                 "https://pypi.org/pypi/{{package_name}}/{{package_version}}/".to_string(),
         }
@@ -167,9 +163,23 @@ fn get_archive_url(
     registry_entry_json: &serde_json::Value,
     package_version: &str,
 ) -> Result<url::Url> {
-    let releases = registry_entry_json["releases"][package_version]
-        .as_array()
-        .ok_or(format_err!("Failed to parse releases array."))?;
+    let releases_section = registry_entry_json
+        .get("releases")
+        .ok_or(format_err!("Failed to find releases JSON section."))?;
+    let release_entry = releases_section.get(package_version).ok_or(format_err!(
+        "Package version not found in registry releases: {}",
+        package_version
+    ))?;
+    let releases = release_entry.as_array().ok_or(format_err!(
+        "Registry releases entry for version {} is not an array.",
+        package_version
+    ))?;
+    if releases.is_empty() {
+        return Err(format_err!(
+            "No release artifacts found for version {}.",
+            package_version
+        ));
+    }
     for release in releases {
         let python_version = release["python_version"]
             .as_str()
