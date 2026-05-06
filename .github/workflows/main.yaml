@@ -42,22 +42,22 @@ jobs:
         id: meta
         shell: bash
         run: |
-          echo ::set-output name=NAME::vouch-py
+          echo ::set-output name=NAME::thirdpass-py
           echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
 
       - name: Get subject repository
         uses: actions/checkout@v2
         with:
-          repository: vouch-dev/${{ steps.meta.outputs.NAME }}
+          repository: thirdpass-org/${{ steps.meta.outputs.NAME }}
           fetch-depth: 1
           path: ${{ steps.meta.outputs.NAME }}
 
-      - name: Get vouch-lib
+      - name: Get thirdpass-lib
         uses: actions/checkout@v2
         with:
-          repository: 'vouch-dev/vouch'
+          repository: 'thirdpass-org/thirdpass'
           fetch-depth: 1
-          path: vouch
+          path: thirdpass
 
       - uses: actions-rs/toolchain@v1
         with:

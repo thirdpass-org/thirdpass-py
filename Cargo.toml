@@ -1,22 +1,22 @@
 [package]
-name = "vouch-py"
+name = "thirdpass-py"
 version = "0.3.1"
 authors = ["rndhouse <rndhouse@protonmail.com>"]
 edition = "2018"
-repository = "https://github.com/vouch-dev/vouch-py"
+repository = "https://github.com/thirdpass-org/thirdpass-py"
 license = "MIT"
-description = "Python ecosystem extension for the Vouch package review system."
+description = "Python ecosystem extension for the Thirdpass package review system."
 
 [lib]
-name = "vouch_py_lib"
+name = "thirdpass_py_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "vouch-py"
+name = "thirdpass-py"
 path = "src/bin.rs"
 
 [dependencies]
-vouch-lib = { path = "../../vouch/vouch-lib", version = "0.3.1" }
+thirdpass-lib = { path = "../../thirdpass/thirdpass-lib", version = "0.3.1" }
 
 anyhow = "1.0.31"
 structopt = "0.3.14"

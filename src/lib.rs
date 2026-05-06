@@ -11,7 +11,7 @@ pub struct PyExtension {
     registry_human_url_template_: String,
 }
 
-impl vouch_lib::extension::FromLib for PyExtension {
+impl thirdpass_lib::extension::FromLib for PyExtension {
     fn new() -> Self {
         Self {
             name_: "py".to_string(),
@@ -22,7 +22,7 @@ impl vouch_lib::extension::FromLib for PyExtension {
     }
 }
 
-impl vouch_lib::extension::Extension for PyExtension {
+impl thirdpass_lib::extension::Extension for PyExtension {
     fn name(&self) -> String {
         self.name_.clone()
     }
@@ -39,7 +39,7 @@ impl vouch_lib::extension::Extension for PyExtension {
         _package_name: &str,
         _package_version: &Option<&str>,
         _extension_args: &Vec<String>,
-    ) -> Result<Vec<vouch_lib::extension::PackageDependencies>> {
+    ) -> Result<Vec<thirdpass_lib::extension::PackageDependencies>> {
         Err(format_err!("Function unimplemented."))
     }
 
@@ -47,7 +47,7 @@ impl vouch_lib::extension::Extension for PyExtension {
         &self,
         working_directory: &std::path::PathBuf,
         _extension_args: &Vec<String>,
-    ) -> Result<Vec<vouch_lib::extension::FileDefinedDependencies>> {
+    ) -> Result<Vec<thirdpass_lib::extension::FileDefinedDependencies>> {
         // Identify all dependency definition files.
         let dependency_files = match identify_dependency_files(&working_directory) {
             Some(v) => v,
@@ -64,7 +64,7 @@ impl vouch_lib::extension::Extension for PyExtension {
                     pipfile::get_registry_host_name(),
                 ),
             };
-            all_dependency_specs.push(vouch_lib::extension::FileDefinedDependencies {
+            all_dependency_specs.push(thirdpass_lib::extension::FileDefinedDependencies {
                 path: dependency_file.path,
                 registry_host_name: registry_host_name,
                 dependencies: dependencies.into_iter().collect(),
@@ -78,7 +78,7 @@ impl vouch_lib::extension::Extension for PyExtension {
         &self,
         package_name: &str,
         package_version: &Option<&str>,
-    ) -> Result<Vec<vouch_lib::extension::RegistryPackageMetadata>> {
+    ) -> Result<Vec<thirdpass_lib::extension::RegistryPackageMetadata>> {
         let package_version = match package_version {
             Some(v) => Some(v.to_string()),
             None => get_latest_version(&package_name)?,
@@ -98,7 +98,7 @@ impl vouch_lib::extension::Extension for PyExtension {
         let artifact_url = get_archive_url(&entry_json, &package_version)?;
         let human_url = get_registry_human_url(&self, &package_name, &package_version)?;
 
-        Ok(vec![vouch_lib::extension::RegistryPackageMetadata {
+        Ok(vec![thirdpass_lib::extension::RegistryPackageMetadata {
             registry_host_name: registry_host_name,
             human_url: human_url.to_string(),
             artifact_url: artifact_url.to_string(),
