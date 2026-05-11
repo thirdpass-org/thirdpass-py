@@ -1276,7 +1276,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "thirdpass-lib"
+name = "thirdpass-core"
 version = "0.3.1"
 dependencies = [
  "anyhow",
@@ -1304,7 +1304,7 @@ dependencies = [
  "structopt",
  "strum",
  "strum_macros",
- "thirdpass-lib",
+ "thirdpass-core",
  "url",
 ]
 
