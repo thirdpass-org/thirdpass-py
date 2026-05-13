@@ -31,6 +31,17 @@ impl thirdpass_core::extension::Extension for PyExtension {
         self.registry_host_names_.clone()
     }
 
+    fn review_target_policy(&self) -> thirdpass_core::extension::ReviewTargetPolicy {
+        thirdpass_core::extension::ReviewTargetPolicy {
+            excluded_exact_paths: vec![
+                "Pipfile.lock".to_string(),
+                "poetry.lock".to_string(),
+                "uv.lock".to_string(),
+                "pdm.lock".to_string(),
+            ],
+        }
+    }
+
     /// Returns a list of dependencies for the given package.
     ///
     /// Returns one package dependencies structure per registry.
@@ -254,4 +265,24 @@ fn identify_dependency_files(
         working_directory.pop();
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use thirdpass_core::extension::{Extension, FromLib};
+
+    #[test]
+    fn review_target_policy_skips_python_lockfiles() {
+        let policy = PyExtension::new().review_target_policy();
+
+        assert!(policy.excludes_exact_path("Pipfile.lock"));
+        assert!(policy.excludes_exact_path("poetry.lock"));
+        assert!(policy.excludes_exact_path("uv.lock"));
+        assert!(policy.excludes_exact_path("pdm.lock"));
+        assert!(!policy.excludes_exact_path("pyproject.toml"));
+        assert!(!policy.excludes_exact_path("setup.py"));
+        assert!(!policy.excludes_exact_path("requirements.txt"));
+        assert!(!policy.excludes_exact_path("PKG-INFO"));
+    }
 }
