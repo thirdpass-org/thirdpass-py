@@ -272,6 +272,36 @@ mod tests {
     use super::*;
     use thirdpass_core::extension::{Extension, FromLib};
 
+    struct TempProject {
+        root: std::path::PathBuf,
+    }
+
+    impl TempProject {
+        fn new(label: &str) -> Result<Self> {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "thirdpass-py-{}-{}-{}",
+                label,
+                std::process::id(),
+                timestamp
+            ));
+            std::fs::create_dir_all(&root)?;
+            Ok(Self { root })
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.root
+        }
+    }
+
+    impl Drop for TempProject {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
     #[test]
     fn review_target_policy_skips_python_lockfiles() {
         let policy = PyExtension::new().review_target_policy();
@@ -284,5 +314,58 @@ mod tests {
         assert!(!policy.excludes_exact_path("setup.py"));
         assert!(!policy.excludes_exact_path("requirements.txt"));
         assert!(!policy.excludes_exact_path("PKG-INFO"));
+    }
+
+    #[test]
+    fn file_defined_dependencies_parse_pipfile_lock_from_child_directory() -> Result<()> {
+        let project = TempProject::new("file-defined-dependencies")?;
+        let nested = project.path().join("src").join("package");
+        std::fs::create_dir_all(&nested)?;
+
+        let pipfile_lock_path = project.path().join("Pipfile.lock");
+        std::fs::write(
+            &pipfile_lock_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "_meta": {},
+                "default": {
+                    "requests": {
+                        "version": "==2.32.3"
+                    }
+                },
+                "develop": {
+                    "pytest": {
+                        "version": "==8.3.4"
+                    }
+                }
+            }))?,
+        )?;
+
+        let extension = PyExtension::new();
+        let extension_args = Vec::new();
+        let groups = extension.identify_file_defined_dependencies(&nested, &extension_args)?;
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].path, pipfile_lock_path);
+        assert_eq!(groups[0].registry_host_name, "pypi.org");
+        assert_dependency(&groups[0].dependencies, "requests", "2.32.3");
+        assert_dependency(&groups[0].dependencies, "pytest", "8.3.4");
+        Ok(())
+    }
+
+    fn assert_dependency(
+        dependencies: &[thirdpass_core::extension::Dependency],
+        name: &str,
+        version: &str,
+    ) {
+        assert!(
+            dependencies
+                .iter()
+                .any(|dependency| dependency.name == name
+                    && dependency.version == Ok(version.into())),
+            "expected dependency {}@{} in {:?}",
+            name,
+            version,
+            dependencies
+        );
     }
 }
