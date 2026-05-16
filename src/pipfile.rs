@@ -6,18 +6,16 @@ static HOST_NAME: &str = "pypi.org";
 /// Parse and clean package version string.
 ///
 /// Returns a structure which details common errors.
-fn get_parsed_version(
-    version: &Option<&str>,
-) -> thirdpass_core::extension::common::VersionParseResult {
+fn get_parsed_version(version: &Option<&str>) -> thirdpass_core::extension::VersionParseResult {
     let cleaned_version = match version {
         Some(v) => match v.strip_prefix("==") {
             Some(v) => v,
             None => {
-                return Err(thirdpass_core::extension::common::VersionError::from_parse_error(v));
+                return Err(thirdpass_core::extension::VersionError::from_parse_error(v));
             }
         },
         None => {
-            return Err(thirdpass_core::extension::common::VersionError::from_missing_version());
+            return Err(thirdpass_core::extension::VersionError::from_missing_version());
         }
     };
     Ok(cleaned_version.to_string())
