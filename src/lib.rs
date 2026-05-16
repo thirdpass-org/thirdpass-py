@@ -49,15 +49,15 @@ impl thirdpass_core::extension::Extension for PyExtension {
         &self,
         _package_name: &str,
         _package_version: &Option<&str>,
-        _extension_args: &Vec<String>,
+        _extension_args: &[String],
     ) -> Result<Vec<thirdpass_core::extension::PackageDependencies>> {
         Err(format_err!("Function unimplemented."))
     }
 
     fn identify_file_defined_dependencies(
         &self,
-        working_directory: &std::path::PathBuf,
-        _extension_args: &Vec<String>,
+        working_directory: &std::path::Path,
+        _extension_args: &[String],
     ) -> Result<Vec<thirdpass_core::extension::FileDefinedDependencies>> {
         // Identify all dependency definition files.
         let dependency_files = match identify_dependency_files(&working_directory) {
@@ -231,11 +231,9 @@ struct DependencyFile {
 /// Returns a vector of identified package dependency definition files.
 ///
 /// Walks up the directory tree directory tree until the first positive result is found.
-fn identify_dependency_files(
-    working_directory: &std::path::PathBuf,
-) -> Option<Vec<DependencyFile>> {
+fn identify_dependency_files(working_directory: &std::path::Path) -> Option<Vec<DependencyFile>> {
     assert!(working_directory.is_absolute());
-    let mut working_directory = working_directory.clone();
+    let mut working_directory = working_directory.to_path_buf();
 
     loop {
         // If at least one target is found, assume package is present.

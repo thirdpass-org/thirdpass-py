@@ -40,7 +40,7 @@ fn parse_section(
 
 /// Parse dependencies from project dependencies definition file.
 pub fn get_dependencies(
-    file_path: &std::path::PathBuf,
+    file_path: &std::path::Path,
 ) -> Result<HashSet<thirdpass_core::extension::Dependency>> {
     let file = std::fs::File::open(file_path)?;
     let reader = std::io::BufReader::new(file);
