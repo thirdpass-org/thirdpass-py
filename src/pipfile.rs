@@ -48,12 +48,12 @@ pub fn get_dependencies(
     ))?;
 
     let mut all_dependencies: HashSet<thirdpass_core::extension::Dependency> = HashSet::new();
-    for section in vec!["default", "develop"] {
+    for section in ["default", "develop"] {
         let json_section = pipfile[section].as_object().ok_or(format_err!(
             "Failed to parse '{}' section of Pipfile.lock",
             section
         ))?;
-        let dependencies = parse_section(&json_section)?;
+        let dependencies = parse_section(json_section)?;
         for dependency in dependencies {
             all_dependencies.insert(dependency);
         }

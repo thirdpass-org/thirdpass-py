@@ -60,7 +60,7 @@ impl thirdpass_core::extension::Extension for PyExtension {
         _extension_args: &[String],
     ) -> Result<Vec<thirdpass_core::extension::FileDefinedDependencies>> {
         // Identify all dependency definition files.
-        let dependency_files = match identify_dependency_files(&working_directory) {
+        let dependency_files = match identify_dependency_files(working_directory) {
             Some(v) => v,
             None => return Ok(Vec::new()),
         };
@@ -77,7 +77,7 @@ impl thirdpass_core::extension::Extension for PyExtension {
             };
             all_dependency_specs.push(thirdpass_core::extension::FileDefinedDependencies {
                 path: dependency_file.path,
-                registry_host_name: registry_host_name,
+                registry_host_name,
                 dependencies: dependencies.into_iter().collect(),
             });
         }
@@ -92,7 +92,7 @@ impl thirdpass_core::extension::Extension for PyExtension {
     ) -> Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>> {
         let package_version = match package_version {
             Some(v) => Some(v.to_string()),
-            None => get_latest_version(&package_name)?,
+            None => get_latest_version(package_name)?,
         }
         .ok_or(format_err!("Failed to find package version."))?;
 
@@ -105,12 +105,12 @@ impl thirdpass_core::extension::Extension for PyExtension {
             ))?
             .clone();
 
-        let entry_json = get_registry_entry_json(&package_name)?;
+        let entry_json = get_registry_entry_json(package_name)?;
         let artifact_url = get_archive_url(&entry_json, &package_version)?;
-        let human_url = get_registry_human_url(&self, &package_name, &package_version)?;
+        let human_url = get_registry_human_url(self, package_name, &package_version)?;
 
         Ok(vec![thirdpass_core::extension::RegistryPackageMetadata {
-            registry_host_name: registry_host_name,
+            registry_host_name,
             human_url: human_url.to_string(),
             artifact_url: artifact_url.to_string(),
             is_primary: true,
@@ -121,16 +121,14 @@ impl thirdpass_core::extension::Extension for PyExtension {
 
 /// Given package name, return latest version.
 fn get_latest_version(package_name: &str) -> Result<Option<String>> {
-    let json = get_registry_entry_json(&package_name)?;
+    let json = get_registry_entry_json(package_name)?;
     let releases = json["releases"]
         .as_object()
         .ok_or(format_err!("Failed to find releases JSON section."))?;
     let mut versions: Vec<semver::Version> = releases
         .keys()
         .filter(|v| v.chars().all(|c| c.is_numeric() || c == '.'))
-        .map(|v| semver::Version::parse(v))
-        .filter(|v| v.is_ok())
-        .map(|v| v.unwrap())
+        .filter_map(|v| semver::Version::parse(v).ok())
         .collect();
     versions.sort();
 
@@ -167,7 +165,7 @@ fn get_registry_entry_json(package_name: &str) -> Result<serde_json::Value> {
     let mut body = String::new();
     result.read_to_string(&mut body)?;
 
-    Ok(serde_json::from_str(&body).context(format!("JSON was not well-formatted:\n{}", body))?)
+    serde_json::from_str(&body).context(format!("JSON was not well-formatted:\n{}", body))
 }
 
 fn get_archive_url(
@@ -255,7 +253,7 @@ fn identify_dependency_files(working_directory: &std::path::Path) -> Option<Vec<
         }
 
         // No need to move further up the directory tree after this loop.
-        if working_directory == std::path::PathBuf::from("/") {
+        if working_directory == std::path::Path::new("/") {
             break;
         }
 
