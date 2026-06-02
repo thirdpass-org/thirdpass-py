@@ -32,14 +32,7 @@ impl thirdpass_core::extension::Extension for PyExtension {
     }
 
     fn review_target_policy(&self) -> thirdpass_core::extension::ReviewTargetPolicy {
-        thirdpass_core::extension::ReviewTargetPolicy {
-            excluded_exact_paths: vec![
-                "Pipfile.lock".to_string(),
-                "poetry.lock".to_string(),
-                "uv.lock".to_string(),
-                "pdm.lock".to_string(),
-            ],
-        }
+        thirdpass_core::extension::ReviewTargetPolicy::default()
     }
 
     /// Returns a list of dependencies for the given package.
@@ -299,13 +292,13 @@ mod tests {
     }
 
     #[test]
-    fn review_target_policy_skips_python_lockfiles() {
+    fn review_target_policy_includes_python_lockfiles() {
         let policy = PyExtension::new().review_target_policy();
 
-        assert!(policy.excludes_exact_path("Pipfile.lock"));
-        assert!(policy.excludes_exact_path("poetry.lock"));
-        assert!(policy.excludes_exact_path("uv.lock"));
-        assert!(policy.excludes_exact_path("pdm.lock"));
+        assert!(!policy.excludes_exact_path("Pipfile.lock"));
+        assert!(!policy.excludes_exact_path("poetry.lock"));
+        assert!(!policy.excludes_exact_path("uv.lock"));
+        assert!(!policy.excludes_exact_path("pdm.lock"));
         assert!(!policy.excludes_exact_path("pyproject.toml"));
         assert!(!policy.excludes_exact_path("setup.py"));
         assert!(!policy.excludes_exact_path("requirements.txt"));
