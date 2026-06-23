@@ -40,11 +40,17 @@ impl thirdpass_core::extension::Extension for PyExtension {
     /// Returns one package dependencies structure per registry.
     fn identify_package_dependencies(
         &self,
-        _package_name: &str,
-        _package_version: &Option<&str>,
-        _extension_args: &[String],
+        package_name: &str,
+        package_version: &Option<&str>,
+        extension_args: &[String],
     ) -> Result<Vec<thirdpass_core::extension::PackageDependencies>> {
-        Err(format_err!("Function unimplemented."))
+        let report = resolve_package_dependencies(package_name, package_version, extension_args)?;
+        let dependencies = package_dependencies_from_pip_report(
+            &report,
+            package_name,
+            package_version.as_ref().copied(),
+        )?;
+        Ok(vec![dependencies])
     }
 
     fn identify_file_defined_dependencies(
@@ -197,6 +203,262 @@ fn get_archive_url(
     Err(format_err!("Failed to identify package archive URL."))
 }
 
+fn resolve_package_dependencies(
+    package_name: &str,
+    package_version: &Option<&str>,
+    extension_args: &[String],
+) -> Result<serde_json::Value> {
+    let temp_directory = TempResolverDirectory::new("identify-package-dependencies")?;
+    let report_path = temp_directory.path().join("pip-report.json");
+    let package_requirement = package_requirement(package_name, package_version);
+
+    let mut attempt_errors = Vec::new();
+    for command in pip_resolver_commands() {
+        let mut resolver = std::process::Command::new(&command.program);
+        resolver
+            .args(&command.prefix_args)
+            .arg("install")
+            .arg("--disable-pip-version-check")
+            .arg("--no-input")
+            .arg("--dry-run")
+            .arg("--ignore-installed")
+            .arg("--report")
+            .arg(&report_path)
+            .args(extension_args)
+            .arg(&package_requirement)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .current_dir(temp_directory.path());
+
+        match resolver.output() {
+            Ok(output) if output.status.success() => {
+                let report = std::fs::read_to_string(&report_path).context(format!(
+                    "Failed to read pip resolver report: {}",
+                    report_path.display()
+                ))?;
+                return serde_json::from_str(&report)
+                    .context("Failed to parse pip resolver report.");
+            }
+            Ok(output) => {
+                attempt_errors.push(format!(
+                    "{} failed:\n{}",
+                    command.display(),
+                    command_output(&output)
+                ));
+            }
+            Err(error) => {
+                attempt_errors.push(format!("{} failed to start: {}", command.display(), error));
+            }
+        }
+    }
+
+    Err(format_err!(
+        "Python package resolver failed for {}:\n{}",
+        package_requirement,
+        attempt_errors.join("\n")
+    ))
+}
+
+fn package_requirement(package_name: &str, package_version: &Option<&str>) -> String {
+    match package_version {
+        Some(package_version) => format!("{}=={}", package_name, package_version),
+        None => package_name.to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ResolverCommand {
+    program: String,
+    prefix_args: Vec<String>,
+}
+
+impl ResolverCommand {
+    fn display(&self) -> String {
+        let mut parts = vec![self.program.clone()];
+        parts.extend(self.prefix_args.clone());
+        parts.join(" ")
+    }
+}
+
+fn pip_resolver_commands() -> Vec<ResolverCommand> {
+    if let Ok(python) = std::env::var("THIRDPASS_PYTHON") {
+        return vec![ResolverCommand {
+            program: python,
+            prefix_args: vec!["-m".to_string(), "pip".to_string()],
+        }];
+    }
+
+    vec![
+        ResolverCommand {
+            program: "python3".to_string(),
+            prefix_args: vec!["-m".to_string(), "pip".to_string()],
+        },
+        ResolverCommand {
+            program: "pip3".to_string(),
+            prefix_args: Vec::new(),
+        },
+        ResolverCommand {
+            program: "pip".to_string(),
+            prefix_args: Vec::new(),
+        },
+    ]
+}
+
+fn command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut message = String::new();
+    if !stdout.trim().is_empty() {
+        message.push_str("stdout:\n");
+        message.push_str(stdout.trim());
+        message.push('\n');
+    }
+    if !stderr.trim().is_empty() {
+        message.push_str("stderr:\n");
+        message.push_str(stderr.trim());
+    }
+    if message.is_empty() {
+        "resolver produced no output".to_string()
+    } else {
+        message
+    }
+}
+
+fn package_dependencies_from_pip_report(
+    report: &serde_json::Value,
+    package_name: &str,
+    fallback_package_version: Option<&str>,
+) -> Result<thirdpass_core::extension::PackageDependencies> {
+    let resolved_packages = resolved_packages_from_pip_report(report)?;
+    let target_package = select_target_package(&resolved_packages, package_name);
+    let package_version = target_package
+        .map(|package| package.version.clone())
+        .or_else(|| fallback_package_version.map(ToOwned::to_owned))
+        .ok_or(format_err!(
+            "Failed to find target package in pip resolver report."
+        ))?;
+    let target_name = canonical_package_name(package_name);
+
+    let mut dependencies =
+        std::collections::BTreeMap::<String, thirdpass_core::extension::Dependency>::new();
+    for package in resolved_packages {
+        let canonical_name = canonical_package_name(&package.name);
+        if canonical_name == target_name {
+            continue;
+        }
+        dependencies.insert(
+            canonical_name,
+            thirdpass_core::extension::Dependency {
+                name: package.name,
+                version: Ok(package.version),
+            },
+        );
+    }
+
+    Ok(thirdpass_core::extension::PackageDependencies {
+        package_version: Ok(package_version),
+        registry_host_name: pipfile::get_registry_host_name(),
+        dependencies: dependencies.into_values().collect(),
+    })
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ResolvedPackage {
+    name: String,
+    version: String,
+    requested: bool,
+}
+
+fn resolved_packages_from_pip_report(report: &serde_json::Value) -> Result<Vec<ResolvedPackage>> {
+    let install_entries = report["install"]
+        .as_array()
+        .ok_or(format_err!("Failed to parse pip report install section."))?;
+
+    let mut packages = Vec::new();
+    for entry in install_entries {
+        let metadata = entry["metadata"]
+            .as_object()
+            .ok_or(format_err!("Failed to parse pip report metadata section."))?;
+        let name = metadata["name"]
+            .as_str()
+            .ok_or(format_err!("Failed to parse pip report package name."))?;
+        let version = metadata["version"]
+            .as_str()
+            .ok_or(format_err!("Failed to parse pip report package version."))?;
+        let requested = entry["requested"].as_bool().unwrap_or(false);
+        packages.push(ResolvedPackage {
+            name: name.to_string(),
+            version: version.to_string(),
+            requested,
+        });
+    }
+
+    Ok(packages)
+}
+
+fn select_target_package<'a>(
+    packages: &'a [ResolvedPackage],
+    package_name: &str,
+) -> Option<&'a ResolvedPackage> {
+    let package_name = canonical_package_name(package_name);
+    packages
+        .iter()
+        .find(|package| package.requested && canonical_package_name(&package.name) == package_name)
+        .or_else(|| {
+            packages
+                .iter()
+                .find(|package| canonical_package_name(&package.name) == package_name)
+        })
+}
+
+fn canonical_package_name(name: &str) -> String {
+    let mut canonical_name = String::new();
+    let mut last_was_separator = false;
+    for character in name.chars() {
+        if character == '-' || character == '_' || character == '.' {
+            if !last_was_separator {
+                canonical_name.push('-');
+                last_was_separator = true;
+            }
+        } else {
+            canonical_name.push(character.to_ascii_lowercase());
+            last_was_separator = false;
+        }
+    }
+    canonical_name
+}
+
+struct TempResolverDirectory {
+    path: std::path::PathBuf,
+}
+
+impl TempResolverDirectory {
+    fn new(label: &str) -> Result<Self> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "thirdpass-py-resolver-{}-{}-{}",
+            label,
+            std::process::id(),
+            timestamp
+        ));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for TempResolverDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
 /// Package dependency file types.
 #[derive(Debug, Copy, Clone, strum_macros::EnumIter)]
 enum DependencyFileType {
@@ -339,6 +601,106 @@ mod tests {
         assert_dependency(&groups[0].dependencies, "requests", "2.32.3");
         assert_dependency(&groups[0].dependencies, "pytest", "8.3.4");
         Ok(())
+    }
+
+    #[test]
+    fn package_dependencies_parse_pip_report() -> Result<()> {
+        let report = serde_json::json!({
+            "version": "1",
+            "pip_version": "25.1",
+            "install": [
+                {
+                    "requested": true,
+                    "metadata": {
+                        "name": "requests",
+                        "version": "2.32.3"
+                    }
+                },
+                {
+                    "requested": false,
+                    "metadata": {
+                        "name": "certifi",
+                        "version": "2025.1.31"
+                    }
+                },
+                {
+                    "requested": false,
+                    "metadata": {
+                        "name": "urllib3",
+                        "version": "2.3.0"
+                    }
+                }
+            ]
+        });
+
+        let dependencies = package_dependencies_from_pip_report(&report, "requests", None)?;
+
+        assert_eq!(dependencies.package_version, Ok("2.32.3".to_string()));
+        assert_eq!(dependencies.registry_host_name, "pypi.org");
+        assert_eq!(dependencies.dependencies.len(), 2);
+        assert_dependency(&dependencies.dependencies, "certifi", "2025.1.31");
+        assert_dependency(&dependencies.dependencies, "urllib3", "2.3.0");
+        assert!(dependencies
+            .dependencies
+            .iter()
+            .all(|dependency| dependency.name != "requests"));
+        Ok(())
+    }
+
+    #[test]
+    fn package_dependencies_match_canonical_target_name() -> Result<()> {
+        let report = serde_json::json!({
+            "install": [
+                {
+                    "requested": true,
+                    "metadata": {
+                        "name": "sample-package",
+                        "version": "1.0.0"
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "dependency_pkg",
+                        "version": "2.0.0"
+                    }
+                }
+            ]
+        });
+
+        let dependencies = package_dependencies_from_pip_report(&report, "sample.package", None)?;
+
+        assert_eq!(dependencies.package_version, Ok("1.0.0".to_string()));
+        assert_eq!(dependencies.dependencies.len(), 1);
+        assert_dependency(&dependencies.dependencies, "dependency_pkg", "2.0.0");
+        Ok(())
+    }
+
+    #[test]
+    fn package_dependencies_use_given_version_without_report_target() -> Result<()> {
+        let report = serde_json::json!({
+            "install": [
+                {
+                    "metadata": {
+                        "name": "dependency",
+                        "version": "2.0.0"
+                    }
+                }
+            ]
+        });
+
+        let dependencies = package_dependencies_from_pip_report(&report, "target", Some("1.0.0"))?;
+
+        assert_eq!(dependencies.package_version, Ok("1.0.0".to_string()));
+        assert_dependency(&dependencies.dependencies, "dependency", "2.0.0");
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_package_name_normalizes_pep_503_names() {
+        assert_eq!(
+            canonical_package_name("Example.Package__Name"),
+            "example-package-name"
+        );
     }
 
     fn assert_dependency(
