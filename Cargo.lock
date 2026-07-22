@@ -1476,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-py"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "handlebars",

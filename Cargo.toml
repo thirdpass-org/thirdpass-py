@@ -1,6 +1,6 @@
 [package]
 name = "thirdpass-py"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["rndhouse <rndhouse@protonmail.com>"]
 edition = "2018"
 repository = "https://github.com/thirdpass-org/thirdpass-py"
@@ -16,7 +16,7 @@ name = "thirdpass-py"
 path = "src/bin.rs"
 
 [dependencies]
-thirdpass-core = { path = "../../thirdpass/thirdpass-core", version = "0.5.0" }
+thirdpass-core = { path = "../../thirdpass/thirdpass-core", version = "0.5.1" }
 
 anyhow = "1.0.31"
 structopt = "0.3.14"
